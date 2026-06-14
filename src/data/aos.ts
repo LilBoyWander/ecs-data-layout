@@ -70,6 +70,9 @@ export class ArrayOfStructuresStore implements DataStore {
 
     if (workload === 'movement' || workload === 'simulation') {
       const startedAt = performance.now();
+      // This loop reads only motion fields, but each array slot still resolves to a complete
+      // JavaScript object. The attached vitals and cold fields are the deliberate AoS tradeoff:
+      // excellent entity-local context, less explicit separation for a narrow batch system.
       for (let index = 0; index < this.entities.length; index += 1) {
         const entity = this.entities[index];
         entity.x += entity.velocityX * deltaTime;
@@ -144,6 +147,8 @@ export class ArrayOfStructuresStore implements DataStore {
 
   checksum(): number {
     let value = 0;
+    // Sampling keeps the audit cheap enough for live use. It intentionally runs after timing,
+    // otherwise the correctness check would distort the layout cost it is meant to validate.
     const stride = Math.max(1, Math.floor(this.entities.length / 512));
     for (let index = 0; index < this.entities.length; index += stride) {
       const entity = this.entities[index];

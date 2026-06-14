@@ -24,6 +24,8 @@ interface AppElements {
   resetButton: HTMLButtonElement;
   stressButton: HTMLButtonElement;
   benchmarkButton: HTMLButtonElement;
+  experimentButtons: NodeListOf<HTMLButtonElement>;
+  experimentSummary: HTMLElement;
   pauseToggle: HTMLInputElement;
   entitySlider: HTMLInputElement;
   entityValue: HTMLElement;
@@ -35,6 +37,13 @@ interface AppElements {
   layoutButtons: NodeListOf<HTMLButtonElement>;
   layoutName: HTMLElement;
   layoutDescription: HTMLElement;
+  insightTitle: HTMLElement;
+  insightBody: HTMLElement;
+  insightTouched: HTMLElement;
+  insightSkipped: HTMLElement;
+  insightWins: HTMLElement;
+  insightLoses: HTMLElement;
+  insightRead: HTMLElement;
   canvas: HTMLCanvasElement;
   canvasEntities: HTMLElement;
   memoryDiagram: HTMLElement;
@@ -48,6 +57,10 @@ interface AppElements {
   scanTime: HTMLElement;
   valuesPerEntity: HTMLElement;
   hotValues: HTMLElement;
+  raceAos: HTMLElement;
+  raceSoa: HTMLElement;
+  raceVerdict: HTMLElement;
+  raceParity: HTMLElement;
   benchmarkStatus: HTMLElement;
   benchmarkVerdict: HTMLElement;
   parityValue: HTMLElement;
@@ -66,10 +79,42 @@ interface AppElements {
 }
 
 type ThemeName = 'paper' | 'midnight';
+type ExperimentName = 'hot-loop' | 'mixed-systems' | 'wide-scan';
+
+interface ExperimentPreset {
+  entityCount: number;
+  coldComponentCount: number;
+  workload: WorkloadName;
+  summary: string;
+}
 
 const DEFAULT_ENTITY_COUNT = 50_000;
 const DEFAULT_COLD_COMPONENTS = 4;
 const DRAW_LIMIT = 6_000;
+const LIVE_RACE_INTERVAL = 10;
+const LIVE_RACE_DELTA = 1 / 60;
+const LIVE_RACE_WARMUP_STEPS = 3;
+
+const EXPERIMENTS: Record<ExperimentName, ExperimentPreset> = {
+  'hot-loop': {
+    entityCount: 100_000,
+    coldComponentCount: 8,
+    workload: 'movement',
+    summary: 'Four hot values stream across 100K entities while eight cold values stay unused.',
+  },
+  'mixed-systems': {
+    entityCount: 50_000,
+    coldComponentCount: 4,
+    workload: 'simulation',
+    summary: 'Movement, vitals, and a filtered query exercise several component combinations.',
+  },
+  'wide-scan': {
+    entityCount: 50_000,
+    coldComponentCount: 8,
+    workload: 'scan',
+    summary: 'Every logical value is read, removing most of the benefit of skipping cold payload.',
+  },
+};
 
 const EMPTY_TIMINGS: SystemTimings = {
   movement: 0,
@@ -91,6 +136,8 @@ export class EcsDataLayoutApp {
   private context!: CanvasRenderingContext2D;
   private seed!: SeedData;
   private store!: DataStore;
+  private raceAosStore!: DataStore;
+  private raceSoaStore!: DataStore;
   private layout: LayoutName = 'soa';
   private workload: WorkloadName = 'simulation';
   private theme: ThemeName = 'midnight';
@@ -108,6 +155,11 @@ export class EcsDataLayoutApp {
   private telemetryElapsed = 0;
   private renderDuration = 0;
   private timings: SystemTimings = { ...EMPTY_TIMINGS };
+  private raceAosTimings: SystemTimings = { ...EMPTY_TIMINGS };
+  private raceSoaTimings: SystemTimings = { ...EMPTY_TIMINGS };
+  private raceParityError = 0;
+  private raceSamples = 0;
+  private raceFrame = 0;
   private benchmark: BenchmarkReport | null = null;
   private rebuildTimer: number | null = null;
 
@@ -134,6 +186,7 @@ export class EcsDataLayoutApp {
   private createWorld(): void {
     this.seed = createSeedData(this.entityCount, this.coldComponentCount);
     this.rebuildSelectedStore();
+    this.resetLiveRace();
     this.benchmark = null;
     if (this.elements) {
       this.updateBenchmarkTelemetry();
@@ -145,6 +198,27 @@ export class EcsDataLayoutApp {
       ? new ArrayOfStructuresStore(this.seed)
       : new StructureOfArraysStore(this.seed);
     this.timings = { ...EMPTY_TIMINGS };
+  }
+
+  private resetLiveRace(): void {
+    this.raceAosStore = new ArrayOfStructuresStore(this.seed);
+    this.raceSoaStore = new StructureOfArraysStore(this.seed);
+    // Prime both implementations before exposing a live winner. Without this small untimed
+    // warmup, the first JIT compilation can dominate the EMA long after the workload changes.
+    for (let step = 0; step < LIVE_RACE_WARMUP_STEPS; step += 1) {
+      if (step % 2 === 0) {
+        this.raceAosStore.step(LIVE_RACE_DELTA, this.season, this.workload);
+        this.raceSoaStore.step(LIVE_RACE_DELTA, this.season, this.workload);
+      } else {
+        this.raceSoaStore.step(LIVE_RACE_DELTA, this.season, this.workload);
+        this.raceAosStore.step(LIVE_RACE_DELTA, this.season, this.workload);
+      }
+    }
+    this.raceAosTimings = { ...EMPTY_TIMINGS };
+    this.raceSoaTimings = { ...EMPTY_TIMINGS };
+    this.raceParityError = 0;
+    this.raceSamples = 0;
+    this.raceFrame = LIVE_RACE_INTERVAL - 1;
   }
 
   private bindEvents(): void {
@@ -173,6 +247,19 @@ export class EcsDataLayoutApp {
           this.layout = layout;
           this.rebuildSelectedStore();
           this.syncControls();
+        }
+      });
+    });
+
+    this.elements.experimentButtons.forEach((button) => {
+      button.addEventListener('click', () => {
+        const experiment = button.dataset.experiment;
+        if (
+          experiment === 'hot-loop' ||
+          experiment === 'mixed-systems' ||
+          experiment === 'wide-scan'
+        ) {
+          this.applyExperiment(experiment);
         }
       });
     });
@@ -221,6 +308,7 @@ export class EcsDataLayoutApp {
       if (workload === 'movement' || workload === 'simulation' || workload === 'scan') {
         this.workload = workload;
         this.benchmark = null;
+        this.resetLiveRace();
         this.syncControls();
         this.updateBenchmarkTelemetry();
       }
@@ -253,6 +341,16 @@ export class EcsDataLayoutApp {
     });
   }
 
+  private applyExperiment(experiment: ExperimentName): void {
+    const preset = EXPERIMENTS[experiment];
+    this.entityCount = preset.entityCount;
+    this.coldComponentCount = preset.coldComponentCount;
+    this.workload = preset.workload;
+    this.speedMultiplier = 1;
+    this.createWorld();
+    this.syncControls();
+  }
+
   private queueRebuild(): void {
     if (this.rebuildTimer !== null) {
       window.clearTimeout(this.rebuildTimer);
@@ -273,6 +371,7 @@ export class EcsDataLayoutApp {
     if (!this.isPaused) {
       const sample = this.store.step(deltaTime, this.season, this.workload);
       this.timings = this.smoothTimings(this.timings, sample);
+      this.sampleLiveRace();
       this.seasonElapsed += elapsed;
       if (this.seasonElapsed >= 8_000) {
         this.season = (this.season + 1) % SEASON_NAMES.length;
@@ -301,8 +400,46 @@ export class EcsDataLayoutApp {
     requestAnimationFrame((timestamp) => this.loop(timestamp));
   }
 
-  private smoothTimings(previous: SystemTimings, sample: SystemTimings): SystemTimings {
-    const weight = 0.16;
+  /**
+   * The race is intentionally detached from frame rate and canvas work. Both layouts advance
+   * one identical fixed step every few frames, and the first runner alternates each sample.
+   * That makes it a responsive teaching signal without pretending to be the controlled benchmark.
+   */
+  private sampleLiveRace(): void {
+    this.raceFrame += 1;
+    if (this.raceFrame % LIVE_RACE_INTERVAL !== 0) {
+      return;
+    }
+
+    let aosSample: SystemTimings;
+    let soaSample: SystemTimings;
+    if (this.raceSamples % 2 === 0) {
+      aosSample = this.raceAosStore.step(LIVE_RACE_DELTA, this.season, this.workload);
+      soaSample = this.raceSoaStore.step(LIVE_RACE_DELTA, this.season, this.workload);
+    } else {
+      soaSample = this.raceSoaStore.step(LIVE_RACE_DELTA, this.season, this.workload);
+      aosSample = this.raceAosStore.step(LIVE_RACE_DELTA, this.season, this.workload);
+    }
+
+    this.raceAosTimings = this.raceSamples === 0
+      ? aosSample
+      : this.smoothTimings(this.raceAosTimings, aosSample, 0.22);
+    this.raceSoaTimings = this.raceSamples === 0
+      ? soaSample
+      : this.smoothTimings(this.raceSoaTimings, soaSample, 0.22);
+    this.raceSamples += 1;
+
+    const aosChecksum = this.raceAosStore.checksum();
+    const soaChecksum = this.raceSoaStore.checksum();
+    const denominator = Math.max(1, Math.abs(aosChecksum), Math.abs(soaChecksum));
+    this.raceParityError = (Math.abs(aosChecksum - soaChecksum) / denominator) * 100;
+  }
+
+  private smoothTimings(
+    previous: SystemTimings,
+    sample: SystemTimings,
+    weight = 0.16,
+  ): SystemTimings {
     return {
       movement: previous.movement * (1 - weight) + sample.movement * weight,
       vitals: previous.vitals * (1 - weight) + sample.vitals * weight,
@@ -397,6 +534,34 @@ export class EcsDataLayoutApp {
     this.elements.movementTime.textContent = this.timings.movement.toFixed(2);
     this.elements.vitalsTime.textContent = this.timings.vitals.toFixed(2);
     this.elements.scanTime.textContent = this.timings.scan.toFixed(2);
+    this.updateRaceTelemetry();
+    this.updateInsightTelemetry();
+  }
+
+  private updateRaceTelemetry(): void {
+    if (this.raceSamples === 0) {
+      this.elements.raceAos.textContent = '-';
+      this.elements.raceSoa.textContent = '-';
+      this.elements.raceVerdict.textContent = 'Collecting fixed-step samples';
+      this.elements.raceParity.textContent = 'Parity pending';
+      return;
+    }
+
+    const aos = this.raceAosTimings.total;
+    const soa = this.raceSoaTimings.total;
+    const faster = Math.max(aos, soa);
+    const slower = Math.max(0.0001, Math.min(aos, soa));
+    const speedup = faster / slower;
+    this.elements.raceAos.textContent = `${aos.toFixed(2)} ms`;
+    this.elements.raceSoa.textContent = `${soa.toFixed(2)} ms`;
+    this.elements.raceParity.textContent = `${this.raceParityError.toFixed(4)}% state delta`;
+
+    if (speedup < 1.05) {
+      this.elements.raceVerdict.textContent = 'Within the live noise band';
+    } else {
+      const winner = aos <= soa ? 'AoS' : 'SoA';
+      this.elements.raceVerdict.textContent = `${winner} is about ${speedup.toFixed(2)}x faster`;
+    }
   }
 
   private updateBenchmarkTelemetry(): void {
@@ -421,6 +586,7 @@ export class EcsDataLayoutApp {
       ]) {
         element.textContent = '-';
       }
+      this.updateInsightTelemetry();
       return;
     }
 
@@ -435,6 +601,7 @@ export class EcsDataLayoutApp {
       `${this.benchmark.parityError.toFixed(4)}% state delta`;
     this.writeBenchmarkCard('aos', this.benchmark);
     this.writeBenchmarkCard('soa', this.benchmark);
+    this.updateInsightTelemetry();
   }
 
   private writeBenchmarkCard(layout: LayoutName, report: BenchmarkReport): void {
@@ -488,7 +655,10 @@ export class EcsDataLayoutApp {
     this.elements.memoryDiagram.className =
       `memory-diagram memory-diagram--${this.layout} memory-diagram--${this.workload}`;
     this.elements.seasonName.textContent = SEASON_NAMES[this.season];
+    this.syncExperimentButtons();
     this.updateDataShapeTelemetry();
+    this.updateRaceTelemetry();
+    this.updateInsightTelemetry();
   }
 
   private updateDataShapeTelemetry(): void {
@@ -498,6 +668,79 @@ export class EcsDataLayoutApp {
       : this.workload === 'simulation'
         ? '8'
         : String(8 + this.coldComponentCount);
+  }
+
+  private syncExperimentButtons(): void {
+    let activeSummary = 'Custom workload: use entity count, component width, and access shape together.';
+    this.elements.experimentButtons.forEach((button) => {
+      const experiment = button.dataset.experiment as ExperimentName | undefined;
+      const preset = experiment ? EXPERIMENTS[experiment] : undefined;
+      const active = Boolean(
+        preset &&
+        preset.entityCount === this.entityCount &&
+        preset.coldComponentCount === this.coldComponentCount &&
+        preset.workload === this.workload,
+      );
+      button.classList.toggle('is-active', active);
+      button.setAttribute('aria-pressed', String(active));
+      if (active && preset) {
+        activeSummary = preset.summary;
+      }
+    });
+    this.elements.experimentSummary.textContent = activeSummary;
+  }
+
+  private updateInsightTelemetry(): void {
+    const totalValues = 8 + this.coldComponentCount;
+    const touchedValues = this.workload === 'movement'
+      ? 4
+      : this.workload === 'simulation'
+        ? 8
+        : totalValues;
+    const touchedPercent = (touchedValues / totalValues) * 100;
+    const skippedPercent = 100 - touchedPercent;
+    const workloadLabel = this.workload === 'movement'
+      ? 'movement loop'
+      : this.workload === 'simulation'
+        ? 'mixed system pass'
+        : 'wide scan';
+
+    this.elements.insightTouched.textContent = `${touchedValues} / ${totalValues}`;
+    this.elements.insightSkipped.textContent = `${skippedPercent.toFixed(0)}%`;
+
+    if (this.layout === 'soa') {
+      this.elements.insightTitle.textContent = skippedPercent >= 30
+        ? 'SoA isolates the columns this system actually needs.'
+        : 'This workload removes most of SoA\'s data-skipping advantage.';
+      this.elements.insightBody.textContent =
+        `The current ${workloadLabel} touches ${touchedPercent.toFixed(0)}% of the logical values per entity. ` +
+        'Typed columns make that access explicit, but the browser benchmark decides whether it pays off here.';
+      this.elements.insightWins.textContent =
+        'Narrow systems stream a few component columns across many entities.';
+      this.elements.insightLoses.textContent =
+        'Entity-centric work needs most fields together, or lifecycle/index complexity dominates the benefit.';
+    } else {
+      this.elements.insightTitle.textContent = skippedPercent >= 30
+        ? 'AoS carries a full entity record through a narrow system.'
+        : 'AoS matches this workload\'s whole-entity access pattern.';
+      this.elements.insightBody.textContent =
+        `The current ${workloadLabel} touches ${touchedPercent.toFixed(0)}% of each logical record. ` +
+        'Object records are convenient local context; unused fields become increasingly relevant as the loop narrows.';
+      this.elements.insightWins.textContent =
+        'Work needs most of one entity at a time, especially at modest counts.';
+      this.elements.insightLoses.textContent =
+        'Large hot loops repeatedly touch a small subset while cold fields remain attached to every object.';
+    }
+
+    if (this.benchmark) {
+      const measuredWinner = this.benchmark.winner === 'aos' ? 'AoS' : 'SoA';
+      this.elements.insightRead.textContent =
+        `Controlled run: ${measuredWinner} led by ${this.benchmark.speedup.toFixed(2)}x with ` +
+        `${this.benchmark.parityError.toFixed(4)}% state delta.`;
+    } else {
+      this.elements.insightRead.textContent =
+        `Read ${touchedValues}/${totalValues} as the access shape, then use the race for a live signal and the benchmark for the claim.`;
+    }
   }
 
   private getPreferredTheme(): ThemeName {
@@ -525,6 +768,8 @@ export class EcsDataLayoutApp {
       resetButton: this.getElement<HTMLButtonElement>('#reset-demo'),
       stressButton: this.getElement<HTMLButtonElement>('#stress-demo'),
       benchmarkButton: this.getElement<HTMLButtonElement>('#run-benchmark'),
+      experimentButtons: this.root.querySelectorAll<HTMLButtonElement>('[data-experiment]'),
+      experimentSummary: this.getElement<HTMLElement>('#experiment-summary'),
       pauseToggle: this.getElement<HTMLInputElement>('#pause-sim'),
       entitySlider: this.getElement<HTMLInputElement>('#entity-slider'),
       entityValue: this.getElement<HTMLElement>('#entity-value'),
@@ -536,6 +781,13 @@ export class EcsDataLayoutApp {
       layoutButtons: this.root.querySelectorAll<HTMLButtonElement>('[data-layout]'),
       layoutName: this.getElement<HTMLElement>('#layout-name'),
       layoutDescription: this.getElement<HTMLElement>('#layout-description'),
+      insightTitle: this.getElement<HTMLElement>('#insight-title'),
+      insightBody: this.getElement<HTMLElement>('#insight-body'),
+      insightTouched: this.getElement<HTMLElement>('#insight-touched'),
+      insightSkipped: this.getElement<HTMLElement>('#insight-skipped'),
+      insightWins: this.getElement<HTMLElement>('#insight-wins'),
+      insightLoses: this.getElement<HTMLElement>('#insight-loses'),
+      insightRead: this.getElement<HTMLElement>('#insight-read'),
       canvas: this.getElement<HTMLCanvasElement>('#ecs-canvas'),
       canvasEntities: this.getElement<HTMLElement>('#canvas-entities'),
       memoryDiagram: this.getElement<HTMLElement>('#memory-diagram'),
@@ -549,6 +801,10 @@ export class EcsDataLayoutApp {
       scanTime: this.getElement<HTMLElement>('#scan-time'),
       valuesPerEntity: this.getElement<HTMLElement>('#values-per-entity'),
       hotValues: this.getElement<HTMLElement>('#hot-values'),
+      raceAos: this.getElement<HTMLElement>('#race-aos'),
+      raceSoa: this.getElement<HTMLElement>('#race-soa'),
+      raceVerdict: this.getElement<HTMLElement>('#race-verdict'),
+      raceParity: this.getElement<HTMLElement>('#race-parity'),
       benchmarkStatus: this.getElement<HTMLElement>('#benchmark-status'),
       benchmarkVerdict: this.getElement<HTMLElement>('#benchmark-verdict'),
       parityValue: this.getElement<HTMLElement>('#parity-value'),
@@ -639,6 +895,25 @@ export class EcsDataLayoutApp {
               <p id="layout-description"></p>
             </div>
 
+            <section class="experiment-lab" aria-labelledby="experiment-title">
+              <div class="experiment-lab__copy">
+                <span>Try the tradeoff</span>
+                <strong id="experiment-title">Workload experiments</strong>
+                <p id="experiment-summary">${EXPERIMENTS['mixed-systems'].summary}</p>
+              </div>
+              <div class="experiment-grid">
+                <button data-experiment="hot-loop" type="button">
+                  <b>Hot loop</b><small>100K / 4 of 16 values</small>
+                </button>
+                <button class="is-active" data-experiment="mixed-systems" type="button">
+                  <b>Mixed systems</b><small>50K / 8 of 12 values</small>
+                </button>
+                <button data-experiment="wide-scan" type="button">
+                  <b>Wide scan</b><small>50K / all 16 values</small>
+                </button>
+              </div>
+            </section>
+
             <div class="memory-shell">
               <div class="memory-header">
                 <span>Logical memory view</span>
@@ -660,6 +935,21 @@ export class EcsDataLayoutApp {
                 </div>
               </div>
             </div>
+
+            <section class="insight" aria-live="polite">
+              <div class="insight__main">
+                <div class="panel__kicker">Key insight / current access pattern</div>
+                <h3 id="insight-title">SoA is isolating the hot columns.</h3>
+                <p id="insight-body"></p>
+              </div>
+              <div class="insight__signal"><span>Values touched</span><strong id="insight-touched">8 / 12</strong></div>
+              <div class="insight__signal"><span>Payload skipped</span><strong id="insight-skipped">33%</strong></div>
+              <div class="lesson-strip">
+                <div><span>Wins when</span><p id="insight-wins"></p></div>
+                <div><span>Loses when</span><p id="insight-loses"></p></div>
+                <div class="lesson-strip__read"><span>Read this workload</span><p id="insight-read"></p></div>
+              </div>
+            </section>
 
             <div class="canvas-shell">
               <canvas id="ecs-canvas" width="${WORLD_WIDTH}" height="${WORLD_HEIGHT}" aria-label="High-volume entity simulation"></canvas>
@@ -711,6 +1001,22 @@ export class EcsDataLayoutApp {
               </dl>
             </section>
 
+            <section class="panel live-race">
+              <div class="panel__header">
+                <div><div class="panel__kicker">Same work / same state</div><h3>Live layout race</h3></div>
+                <output id="race-parity">Parity pending</output>
+              </div>
+              <div class="race-grid">
+                <div><span>AoS fixed step</span><strong id="race-aos">-</strong></div>
+                <div><span>SoA fixed step</span><strong id="race-soa">-</strong></div>
+              </div>
+              <div class="race-verdict">
+                <span>Rolling signal</span>
+                <strong id="race-verdict">Collecting fixed-step samples</strong>
+                <p>Throttled and smoothed for exploration. Use the controlled benchmark for a measured claim.</p>
+              </div>
+            </section>
+
             <section class="panel">
               <div class="panel__header"><div><div class="panel__kicker">Inspect</div><h3>Simulation state</h3></div></div>
               <div class="toggle-stack">
@@ -727,7 +1033,7 @@ export class EcsDataLayoutApp {
             <h2>Measure the layout, not the reset.</h2>
             <p id="benchmark-status">Run both layouts from one seeded snapshot using fixed simulation steps.</p>
             <button class="button button--primary" id="run-benchmark" type="button">Benchmark both layouts</button>
-            <div class="benchmark__audit"><span>State parity</span><strong id="parity-value">-</strong></div>
+            <div class="benchmark__audit"><span>Correctness / final-state parity</span><strong id="parity-value">-</strong><small>Speed only matters after equivalent state is verified.</small></div>
           </div>
           <div class="benchmark__results">
             <div class="benchmark__verdict"><span>Result</span><strong id="benchmark-verdict">No benchmark yet</strong></div>

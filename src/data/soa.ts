@@ -46,6 +46,9 @@ export class StructureOfArraysStore implements DataStore {
 
     if (workload === 'movement' || workload === 'simulation') {
       const startedAt = performance.now();
+      // The hot loop names exactly four packed columns. Health, energy, group, age, and every
+      // cold component remain in separate arrays and never enter this traversal. That omission,
+      // rather than "typed arrays are always faster", is the access-pattern lesson under test.
       for (let index = 0; index < this.count; index += 1) {
         let x = this.x[index] + this.velocityX[index] * deltaTime;
         let y = this.y[index] + this.velocityY[index] * deltaTime;
@@ -134,6 +137,8 @@ export class StructureOfArraysStore implements DataStore {
 
   checksum(): number {
     let value = 0;
+    // Keep state validation out of the measured systems. Both stores use the same sampling
+    // stride and weights, so a low delta demonstrates equivalent evolution rather than speed.
     const stride = Math.max(1, Math.floor(this.count / 512));
     for (let index = 0; index < this.count; index += stride) {
       value +=

@@ -432,6 +432,82 @@ h1 span {
   line-height: 1.6;
 }
 
+.experiment-lab {
+  display: grid;
+  grid-template-columns: minmax(210px, 0.72fr) 2fr;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-raised);
+}
+
+.experiment-lab__copy {
+  padding: 15px 18px;
+  border-right: 1px solid var(--line);
+}
+
+.experiment-lab__copy span,
+.experiment-lab__copy strong {
+  display: block;
+}
+
+.experiment-lab__copy span,
+.experiment-grid small {
+  color: var(--ink-soft);
+  font-family: 'DM Mono', monospace;
+  font-size: 8px;
+  text-transform: uppercase;
+}
+
+.experiment-lab__copy strong {
+  margin-top: 3px;
+  font-size: 12px;
+}
+
+.experiment-lab__copy p {
+  margin: 6px 0 0;
+  color: var(--ink-soft);
+  font-size: 9px;
+  line-height: 1.55;
+}
+
+.experiment-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.experiment-grid button {
+  padding: 14px;
+  border: 0;
+  border-right: 1px solid var(--line);
+  background: var(--surface-muted);
+  color: var(--ink-soft);
+  cursor: pointer;
+  text-align: left;
+}
+
+.experiment-grid button:last-child {
+  border-right: 0;
+}
+
+.experiment-grid button.is-active {
+  box-shadow: inset 0 -3px var(--green);
+  background: var(--green-soft);
+  color: var(--ink);
+}
+
+.experiment-grid b,
+.experiment-grid small {
+  display: block;
+}
+
+.experiment-grid b {
+  font-size: 10px;
+}
+
+.experiment-grid small {
+  margin-top: 4px;
+  text-transform: none;
+}
+
 .memory-shell {
   padding: 14px 15px 15px;
   border-bottom: 1px solid var(--line);
@@ -532,6 +608,89 @@ h1 span {
   border-color: var(--line);
   background: transparent;
   color: var(--ink-soft);
+}
+
+.insight {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(120px, 0.42fr) minmax(120px, 0.42fr);
+  border-bottom: 1px solid var(--line);
+  background: color-mix(in srgb, var(--green-soft) 58%, var(--surface));
+}
+
+.insight__main,
+.insight__signal {
+  padding: 15px 18px;
+  border-right: 1px solid var(--line);
+}
+
+.insight__main h3 {
+  margin: 4px 0 5px;
+  font-family: 'Syne', sans-serif;
+  font-size: 17px;
+  letter-spacing: -0.02em;
+}
+
+.insight__main p {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 9px;
+  line-height: 1.6;
+}
+
+.insight__signal {
+  display: grid;
+  align-content: center;
+}
+
+.insight__signal span,
+.lesson-strip span {
+  color: var(--ink-soft);
+  font-family: 'DM Mono', monospace;
+  font-size: 8px;
+  text-transform: uppercase;
+}
+
+.insight__signal strong {
+  margin-top: 5px;
+  color: var(--orange);
+  font-family: 'DM Mono', monospace;
+  font-size: 17px;
+}
+
+.lesson-strip {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: 0.9fr 0.9fr 1.5fr;
+  border-top: 1px solid var(--line);
+}
+
+.lesson-strip > div {
+  padding: 12px 16px;
+  border-right: 1px solid var(--line);
+}
+
+.lesson-strip > div:last-child {
+  border-right: 0;
+}
+
+.lesson-strip span {
+  color: var(--orange);
+}
+
+.lesson-strip p {
+  margin: 5px 0 0;
+  color: var(--ink-soft);
+  font-size: 9px;
+  line-height: 1.55;
+}
+
+.lesson-strip__read {
+  background: color-mix(in srgb, var(--green-soft) 70%, transparent);
+}
+
+.lesson-strip__read p {
+  color: var(--ink);
+  font-weight: 600;
 }
 
 .canvas-shell {
@@ -850,6 +1009,67 @@ select {
   line-height: 1.6;
 }
 
+.live-race .panel__header output {
+  max-width: 116px;
+  color: var(--green);
+  font-family: 'DM Mono', monospace;
+  font-size: 8px;
+  text-align: right;
+}
+
+.race-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+}
+
+.race-grid > div {
+  padding: 13px 16px;
+  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+
+.race-grid > div:last-child {
+  border-right: 0;
+}
+
+.race-grid span,
+.race-grid strong {
+  display: block;
+}
+
+.race-grid span,
+.race-verdict span {
+  color: var(--ink-soft);
+  font-family: 'DM Mono', monospace;
+  font-size: 8px;
+  text-transform: uppercase;
+}
+
+.race-grid strong {
+  margin-top: 5px;
+  color: var(--violet);
+  font-family: 'DM Mono', monospace;
+  font-size: 15px;
+}
+
+.race-verdict {
+  padding: 13px 16px;
+  background: var(--surface-muted);
+}
+
+.race-verdict strong {
+  display: block;
+  margin-top: 4px;
+  font-size: 11px;
+}
+
+.race-verdict p {
+  margin: 5px 0 0;
+  color: var(--ink-soft);
+  font-size: 8px;
+  line-height: 1.55;
+}
+
 .benchmark,
 .explanation,
 .tradeoffs {
@@ -906,6 +1126,14 @@ select {
   color: var(--green);
   font-family: 'DM Mono', monospace;
   font-size: 13px;
+}
+
+.benchmark__audit small {
+  display: block;
+  margin-top: 5px;
+  color: var(--ink-soft);
+  font-size: 9px;
+  line-height: 1.5;
 }
 
 .benchmark__results {
@@ -1163,12 +1391,14 @@ select {
   }
 
   .benchmark,
-  .explanation {
+  .explanation,
+  .experiment-lab {
     grid-template-columns: 1fr;
   }
 
   .benchmark__intro,
-  .explanation__intro {
+  .explanation__intro,
+  .experiment-lab__copy {
     border-right: 0;
     border-bottom: 1px solid var(--line);
   }
@@ -1208,6 +1438,7 @@ select {
 
   .layout-switch,
   .layout-summary,
+  .insight,
   .result-grid,
   .principles {
     grid-template-columns: 1fr;
@@ -1219,6 +1450,42 @@ select {
   .principles li {
     border-right: 0;
     border-bottom: 1px solid var(--line);
+  }
+
+  .experiment-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .experiment-grid button {
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .experiment-grid button:last-child {
+    border-bottom: 0;
+  }
+
+  .experiment-grid button.is-active {
+    box-shadow: inset 3px 0 var(--green);
+  }
+
+  .insight__main,
+  .insight__signal {
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .lesson-strip {
+    grid-template-columns: 1fr;
+  }
+
+  .lesson-strip > div {
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .lesson-strip > div:last-child {
+    border-bottom: 0;
   }
 
   .layout-switch button.is-active {

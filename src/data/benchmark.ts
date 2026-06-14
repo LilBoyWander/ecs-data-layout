@@ -14,6 +14,11 @@ const FIXED_DELTA = 1 / 60;
 const WARMUP_STEPS = 10;
 const SAMPLE_COUNT = 18;
 
+export interface BenchmarkOptions {
+  warmupSteps?: number;
+  sampleCount?: number;
+}
+
 function percentile(values: number[], fraction: number): number {
   const sorted = [...values].sort((first, second) => first - second);
   const index = Math.min(sorted.length - 1, Math.floor(sorted.length * fraction));
@@ -40,8 +45,13 @@ function summarize(
   };
 }
 
-function warmStore(store: DataStore, workload: WorkloadName, season: number): void {
-  for (let step = 0; step < WARMUP_STEPS; step += 1) {
+function warmStore(
+  store: DataStore,
+  workload: WorkloadName,
+  season: number,
+  warmupSteps: number,
+): void {
+  for (let step = 0; step < warmupSteps; step += 1) {
     store.step(FIXED_DELTA, season, workload);
   }
 }
@@ -54,16 +64,21 @@ export function runBenchmark(
   seed: SeedData,
   workload: WorkloadName,
   season: number,
+  options: BenchmarkOptions = {},
 ): BenchmarkReport {
+  const warmupSteps = options.warmupSteps ?? WARMUP_STEPS;
+  const sampleCount = options.sampleCount ?? SAMPLE_COUNT;
   const aosStore = new ArrayOfStructuresStore(seed);
   const soaStore = new StructureOfArraysStore(seed);
 
-  warmStore(aosStore, workload, season);
-  warmStore(soaStore, workload, season);
+  warmStore(aosStore, workload, season, warmupSteps);
+  warmStore(soaStore, workload, season, warmupSteps);
 
   const aosSamples: SystemTimings[] = [];
   const soaSamples: SystemTimings[] = [];
-  for (let sample = 0; sample < SAMPLE_COUNT; sample += 1) {
+  // Alternating the first runner reduces the chance that one layout consistently inherits
+  // a warmer CPU, a fresher JIT tier, or the same background-browser interruption.
+  for (let sample = 0; sample < sampleCount; sample += 1) {
     if (sample % 2 === 0) {
       aosSamples.push(aosStore.step(FIXED_DELTA, season, workload));
       soaSamples.push(soaStore.step(FIXED_DELTA, season, workload));
@@ -88,6 +103,6 @@ export function runBenchmark(
     parityError,
     winner,
     speedup: faster / slower,
-    sampleCount: SAMPLE_COUNT,
+    sampleCount,
   };
 }

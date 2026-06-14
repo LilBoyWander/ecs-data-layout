@@ -24,6 +24,12 @@ An object-oriented layout keeps one entity's values together. A data-oriented la
 
 This case study makes those patterns visible and benchmarks them without changing system behavior.
 
+The live page now teaches the decision in three layers:
+
+- **Workload experiments** configure a narrow hot loop, mixed systems, or a full-record scan.
+- **Live layout race** advances both layouts with the same fixed step and continuously audits state parity.
+- **Controlled benchmark** warms both implementations, alternates execution order, and reports median/p95 results.
+
 ## Layouts
 
 ### Array of Structures
@@ -108,6 +114,7 @@ npm run check
 - Scale the simulation from 10,000 to 100,000 entities.
 - Add zero to eight cold component values per entity.
 - Choose movement, full simulation, or wide-scan workloads.
+- Use the experiment presets to move between intentionally different access patterns.
 - Press `B` to benchmark both layouts.
 - Press `Space` to pause the live simulation.
 
@@ -120,7 +127,18 @@ Switching layouts rebuilds the live store from the same immutable seed so each r
 - SoA storage uses `Float32Array` and `Uint8Array` component columns.
 - Canvas rendering samples at most 6,000 entities and is timed separately.
 - Live telemetry uses smoothing; benchmark results use raw sample medians.
+- The live race is throttled, alternates first-runner order, and is presented as a rolling signal rather than a benchmark.
 - Cold components are untouched by narrow hot systems and read by the wide-scan workload.
+
+## Verification
+
+```bash
+npm test
+npm run check
+npm run build
+```
+
+The test suite verifies deterministic seeds, AoS/SoA state parity across every workload, configurable benchmark sampling, and the educational experiment wiring.
 
 ## Project Structure
 
