@@ -1,0 +1,20 @@
+{
+  "name": "ecs-data-layout-case-study",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Interactive comparison of array-of-structures and structure-of-arrays data layouts for ECS-style systems.",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "check": "tsc --noEmit"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "typescript": "~6.0.2",
+    "vite": "^8.0.12"
+  }
+}
